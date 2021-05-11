@@ -2,6 +2,7 @@ package apiserver
 
 import (
 	"encoding/json"
+	"errors"
 	"github.com/astanishevskyi/http-server/apiserver/adapters"
 	"github.com/astanishevskyi/http-server/apiserver/configs"
 	"github.com/astanishevskyi/http-server/apiserver/models"
@@ -23,16 +24,19 @@ func New(config *configs.Config) *Server {
 }
 
 func (s *Server) Run() error {
+	log.Println("Server is running on " + s.config.BindAddr)
 	return http.ListenAndServe(s.config.BindAddr, nil)
 }
 
 func (s *Server) ConfigStorage() error {
 	if s.config.Storage == "in-memory" {
+		log.Println("Storage is in-memory")
 		inMemoryStorage := adapters.NewInMemoryUserStorage()
 		s.storage = inMemoryStorage
+		return nil
+
 	}
-	// need to throw error if s.config.Storage is empty or doesn't exist
-	return nil
+	return errors.New("no storage is set")
 }
 
 func (s *Server) ConfigRouter() {
@@ -42,9 +46,11 @@ func (s *Server) ConfigRouter() {
 func (s *Server) User(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
+
 		id, _ := strconv.ParseUint(strings.TrimPrefix(r.URL.Path, "/user/"), 0, 32)
 
 		if id == 0 {
+			log.Println("GET /user/")
 			resp := s.storage.GetAll()
 			respJson, _ := json.Marshal(resp)
 			_, err := w.Write(respJson)
@@ -53,6 +59,7 @@ func (s *Server) User(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		} else {
+			log.Printf("GET /user/%d", id)
 			resp, err := s.storage.Retrieve(uint32(id))
 			if err != nil {
 				http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -66,6 +73,7 @@ func (s *Server) User(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	case http.MethodPost:
+		log.Println("POST /user/")
 		if err := r.ParseMultipartForm(10000); err != nil {
 			log.Fatal(err)
 		}
@@ -96,6 +104,8 @@ func (s *Server) User(w http.ResponseWriter, r *http.Request) {
 		}
 	case http.MethodPut:
 		id, _ := strconv.ParseUint(strings.TrimPrefix(r.URL.Path, "/user/"), 0, 32)
+		log.Printf("PUT /user/%d", id)
+
 		if id == 0 {
 			http.Error(w, "no user id", http.StatusBadRequest)
 			return
@@ -126,6 +136,8 @@ func (s *Server) User(w http.ResponseWriter, r *http.Request) {
 
 	case http.MethodDelete:
 		id, _ := strconv.ParseUint(strings.TrimPrefix(r.URL.Path, "/user/"), 0, 32)
+		log.Printf("GET /user/%d", id)
+
 		if id == 0 {
 			http.Error(w, "no user id", http.StatusBadRequest)
 			return
@@ -146,5 +158,4 @@ func (s *Server) User(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-
 }
