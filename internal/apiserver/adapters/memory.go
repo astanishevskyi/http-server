@@ -3,9 +3,11 @@ package adapters
 import (
 	"errors"
 	"github.com/astanishevskyi/http-server/internal/apiserver/models"
+	"sync"
 )
 
 type UserStorage struct {
+	mu         sync.Mutex
 	lastID     uint32
 	UsersSlice []models.User `json:" users"`
 }
@@ -16,10 +18,16 @@ func NewInMemoryUserStorage() *UserStorage {
 }
 
 func (s *UserStorage) GetAll() []models.User {
-	return s.UsersSlice
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	copyUserSlice := make([]models.User, len(s.UsersSlice))
+	copy(copyUserSlice, s.UsersSlice)
+	return copyUserSlice
 }
 
 func (s *UserStorage) Retrieve(id uint32) (models.User, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	for _, val := range s.UsersSlice {
 		if val.ID == id {
 			return val, nil
@@ -30,12 +38,16 @@ func (s *UserStorage) Retrieve(id uint32) (models.User, error) {
 
 func (s *UserStorage) Add(name, email string, age uint8) models.User {
 	user := models.User{ID: s.lastID, Age: age, Name: name, Email: email}
-	s.lastID += 1
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.lastID++
 	s.UsersSlice = append(s.UsersSlice, user)
 	return user
 }
 
 func (s *UserStorage) Remove(id uint32) (uint32, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	for i, val := range s.UsersSlice {
 		if val.ID == id {
 			s.UsersSlice = append(s.UsersSlice[:i], s.UsersSlice[i+1:]...)
@@ -46,6 +58,8 @@ func (s *UserStorage) Remove(id uint32) (uint32, error) {
 }
 
 func (s *UserStorage) Update(id uint32, name, email string, age uint8) (models.User, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	for i, val := range s.UsersSlice {
 		if val.ID == id {
 			val.Name = name
@@ -56,5 +70,4 @@ func (s *UserStorage) Update(id uint32, name, email string, age uint8) (models.U
 		}
 	}
 	return models.User{}, errors.New("no user was found")
-
 }
