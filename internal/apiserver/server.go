@@ -3,11 +3,11 @@ package apiserver
 import (
 	"context"
 	"encoding/json"
-	"errors"
-	"github.com/astanishevskyi/http-server/internal/apiserver/adapters"
 	"github.com/astanishevskyi/http-server/internal/apiserver/configs"
 	"github.com/astanishevskyi/http-server/internal/apiserver/models"
+	"github.com/astanishevskyi/http-server/pkg/api"
 	"github.com/gorilla/mux"
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -18,15 +18,16 @@ import (
 )
 
 type Server struct {
-	config  *configs.Config
-	router  *mux.Router
-	storage models.UserService
+	config     *configs.Config
+	grpcServer api.UserClient
+	router     *mux.Router
 }
 
-func New(config *configs.Config) *Server {
+func New(config *configs.Config, grpcServer api.UserClient) *Server {
 	return &Server{
-		config: config,
-		router: mux.NewRouter(),
+		config:     config,
+		router:     mux.NewRouter(),
+		grpcServer: grpcServer,
 	}
 }
 
@@ -58,17 +59,6 @@ func (s *Server) Run() error {
 	return nil
 }
 
-func (s *Server) ConfigStorage() error {
-	if s.config.Storage == "in-memory" {
-		log.Println("Storage is in-memory")
-		inMemoryStorage := adapters.NewInMemoryUserStorage()
-		s.storage = inMemoryStorage
-		return nil
-
-	}
-	return errors.New("no storage is set")
-}
-
 func (s *Server) ConfigRouter() {
 	s.router.HandleFunc("/user", s.GetUsers).Methods("GET")
 	s.router.HandleFunc("/user", s.CreateUser).Methods("POST")
@@ -85,7 +75,7 @@ func (s *Server) GetUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	log.Printf("GET /user/%d", id)
-	resp, err := s.storage.Retrieve(uint32(id))
+	resp, err := s.grpcServer.GetUser(context.Background(), &api.UserId{Id: uint32(id)})
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -102,10 +92,30 @@ func (s *Server) GetUser(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *Server) GetUsers(w http.ResponseWriter, r *http.Request) {
+func (s *Server) GetUsers(w http.ResponseWriter, _ *http.Request) {
 	log.Println("GET /user/")
-	resp := s.storage.GetAll()
-	respJSON, err := json.Marshal(resp)
+	grpcResp, err := s.grpcServer.GetUsers(context.Background(), &api.NoneObject{})
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	userSlice := make([]models.User, 0)
+
+	for {
+		res, errRecv := grpcResp.Recv()
+		if errRecv == io.EOF {
+			break
+		}
+		if errRecv != nil {
+			http.Error(w, errRecv.Error(), http.StatusInternalServerError)
+			return
+		}
+		user := models.User{ID: res.GetId(), Age: uint8(res.GetAge()), Name: res.GetName(), Email: res.GetEmail()}
+		userSlice = append(userSlice, user)
+	}
+
+	respJSON, err := json.Marshal(userSlice)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -137,7 +147,11 @@ func (s *Server) CreateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	resp := s.storage.Add(name, email, uint8(age))
+	resp, err := s.grpcServer.CreateUser(context.Background(), &api.NewUser{Name: name, Email: email, Age: int32(age)})
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
 	respJSON, err := json.Marshal(resp)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -171,9 +185,9 @@ func (s *Server) UpdateUser(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	resp, err := s.storage.Update(uint32(id), name, email, uint8(age))
+	resp, err := s.grpcServer.UpdateUser(context.Background(), &api.UserObject{Id: uint32(id), Name: name, Email: email, Age: uint32(age)})
 	if err != nil {
-		http.Error(w, "no user id", http.StatusBadRequest)
+		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 	respJSON, err := json.Marshal(resp)
@@ -201,12 +215,12 @@ func (s *Server) DeleteUser(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "no user id", http.StatusBadRequest)
 		return
 	}
-	res, err := s.storage.Remove(uint32(id))
+	res, err := s.grpcServer.DeleteUser(context.Background(), &api.UserId{Id: uint32(id)})
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	marshal, err := json.Marshal(map[string]uint32{"id": res})
+	marshal, err := json.Marshal(res)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return

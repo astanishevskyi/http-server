@@ -4,6 +4,7 @@ import (
 	"flag"
 	"github.com/astanishevskyi/http-server/internal/apiserver"
 	"github.com/astanishevskyi/http-server/internal/apiserver/configs"
+	"github.com/astanishevskyi/http-server/internal/apiserver/connectors"
 	"github.com/joho/godotenv"
 	"log"
 	"os"
@@ -25,16 +26,14 @@ func main() {
 		log.Fatal("Error loading .env file")
 	}
 	port := os.Getenv("PORT")
-	storage := os.Getenv("STORAGE")
+	grpcAddr := os.Getenv("GRPCADDR")
 	config := configs.Config{
 		BindAddr: port,
-		Storage:  storage,
+		GRPCAddr: grpcAddr,
 	}
-	server := apiserver.New(&config)
+	grpcServer := connectors.NewGRPC(config.GRPCAddr)
+	server := apiserver.New(&config, grpcServer)
 
-	if err := server.ConfigStorage(); err != nil {
-		log.Fatal(err)
-	}
 	server.ConfigRouter()
 	if err := server.Run(); err != nil {
 		log.Fatal(err)
