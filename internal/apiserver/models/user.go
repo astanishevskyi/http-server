@@ -6,11 +6,3 @@ type User struct {
 	Name  string `json:"name"`
 	Email string `json:"email"`
 }
-
-type UserService interface {
-	GetAll() []User
-	Retrieve(id uint32) (User, error)
-	Add(name, email string, age uint8) User
-	Remove(id uint32) (uint32, error)
-	Update(id uint32, name, email string, age uint8) (User, error)
-}
