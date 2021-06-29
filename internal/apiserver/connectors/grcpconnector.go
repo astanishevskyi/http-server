@@ -2,6 +2,7 @@ package connectors
 
 import (
 	"context"
+	"fmt"
 	"github.com/astanishevskyi/http-server/internal/apiserver/models"
 	"github.com/astanishevskyi/http-server/pkg/api"
 	"google.golang.org/grpc"
@@ -16,6 +17,7 @@ type GrpcConnector struct {
 func NewGRPC(grpcAddr string) GrpcConnector {
 	conn, err := grpc.Dial(grpcAddr, grpc.WithInsecure())
 	if err != nil {
+		fmt.Println("dgsdgdf")
 		log.Fatal(err)
 	}
 	c := api.NewUserClient(conn)

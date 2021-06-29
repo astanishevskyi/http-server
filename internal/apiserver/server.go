@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"github.com/astanishevskyi/http-server/internal/apiserver/configs"
 	"github.com/astanishevskyi/http-server/internal/apiserver/connectors"
-	graph "github.com/astanishevskyi/http-server/internal/apiserver/graphql"
 	"github.com/gorilla/mux"
 	"github.com/graphql-go/graphql"
 	"log"
@@ -68,15 +67,6 @@ func (s *Server) ConfigRouter() {
 	s.router.HandleFunc("/user/{id:[0-9]+}", s.GetUser).Methods("GET")
 	s.router.HandleFunc("/user/{id:[0-9]+}", s.UpdateUser).Methods("PUT")
 	s.router.HandleFunc("/user/{id:[0-9]+}", s.DeleteUser).Methods("DELETE")
-}
-
-func (s *Server) ConfigGraphql() {
-	var err error
-	s.gqlSchema, err = graph.Schema(s.grpcServer)
-	//s.router.HandleFunc('/user/graphql')
-	if err != nil {
-		log.Fatal(err)
-	}
 }
 
 func (s *Server) GetUser(w http.ResponseWriter, r *http.Request) {
