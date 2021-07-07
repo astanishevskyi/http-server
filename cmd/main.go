@@ -4,7 +4,6 @@ import (
 	"flag"
 	"github.com/astanishevskyi/http-server/internal/apiserver"
 	"github.com/astanishevskyi/http-server/internal/apiserver/configs"
-	"github.com/astanishevskyi/http-server/internal/apiserver/connectors"
 	"github.com/joho/godotenv"
 	"log"
 	"os"
@@ -31,8 +30,7 @@ func main() {
 		BindAddr: port,
 		GRPCAddr: grpcAddr,
 	}
-	grpcServer := connectors.NewGRPC(config.GRPCAddr)
-	server := apiserver.New(&config, grpcServer)
+	server := apiserver.New(&config)
 
 	server.ConfigRouter()
 	if err := server.Run(); err != nil {

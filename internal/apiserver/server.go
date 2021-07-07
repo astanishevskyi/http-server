@@ -4,12 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"github.com/astanishevskyi/http-server/internal/apiserver/configs"
-	"github.com/astanishevskyi/http-server/internal/apiserver/models"
-	"github.com/astanishevskyi/http-server/pkg/api"
+	"github.com/astanishevskyi/http-server/internal/apiserver/connectors"
 	"github.com/gorilla/mux"
-	"io"
+	"github.com/graphql-go/graphql"
 	"log"
 	"net/http"
+	"net/mail"
 	"os"
 	"os/signal"
 	"strconv"
@@ -19,15 +19,16 @@ import (
 
 type Server struct {
 	config     *configs.Config
-	grpcServer api.UserClient
+	grpcServer connectors.GrpcConnector
+	gqlSchema  *graphql.Schema
 	router     *mux.Router
 }
 
-func New(config *configs.Config, grpcServer api.UserClient) *Server {
+func New(config *configs.Config) *Server {
 	return &Server{
 		config:     config,
 		router:     mux.NewRouter(),
-		grpcServer: grpcServer,
+		grpcServer: connectors.NewGRPC(config.GRPCAddr),
 	}
 }
 
@@ -60,6 +61,7 @@ func (s *Server) Run() error {
 }
 
 func (s *Server) ConfigRouter() {
+	s.router.HandleFunc("/user/graph", s.GraphUser)
 	s.router.HandleFunc("/user", s.GetUsers).Methods("GET")
 	s.router.HandleFunc("/user", s.CreateUser).Methods("POST")
 	s.router.HandleFunc("/user/{id:[0-9]+}", s.GetUser).Methods("GET")
@@ -75,7 +77,7 @@ func (s *Server) GetUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	log.Printf("GET /user/%d", id)
-	resp, err := s.grpcServer.GetUser(context.Background(), &api.UserId{Id: uint32(id)})
+	resp, err := s.grpcServer.GetUser(id)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -94,28 +96,13 @@ func (s *Server) GetUser(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) GetUsers(w http.ResponseWriter, _ *http.Request) {
 	log.Println("GET /user/")
-	grpcResp, err := s.grpcServer.GetUsers(context.Background(), &api.NoneObject{})
+	resp, err := s.grpcServer.GetUsers()
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	userSlice := make([]models.User, 0)
-
-	for {
-		res, errRecv := grpcResp.Recv()
-		if errRecv == io.EOF {
-			break
-		}
-		if errRecv != nil {
-			http.Error(w, errRecv.Error(), http.StatusInternalServerError)
-			return
-		}
-		user := models.User{ID: res.GetId(), Age: uint8(res.GetAge()), Name: res.GetName(), Email: res.GetEmail()}
-		userSlice = append(userSlice, user)
-	}
-
-	respJSON, err := json.Marshal(userSlice)
+	respJSON, err := json.Marshal(resp)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -146,8 +133,11 @@ func (s *Server) CreateUser(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "no name, email or age in body request", http.StatusBadRequest)
 		return
 	}
-
-	resp, err := s.grpcServer.CreateUser(context.Background(), &api.NewUser{Name: name, Email: email, Age: int32(age)})
+	if _, err := mail.ParseAddress(email); err != nil {
+		http.Error(w, "email is not valid", http.StatusBadRequest)
+		return
+	}
+	resp, err := s.grpcServer.CreateUser(name, email, int32(age))
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -185,7 +175,16 @@ func (s *Server) UpdateUser(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	resp, err := s.grpcServer.UpdateUser(context.Background(), &api.UserObject{Id: uint32(id), Name: name, Email: email, Age: uint32(age)})
+	if (name == "") || (email == "") || (age == 0) {
+		http.Error(w, "no name, email or age in body request", http.StatusBadRequest)
+		return
+	}
+	if _, err := mail.ParseAddress(email); err != nil {
+		http.Error(w, "email is not valid", http.StatusBadRequest)
+		return
+	}
+
+	resp, err := s.grpcServer.UpdateUser(uint32(id), uint32(age), name, email)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -215,7 +214,7 @@ func (s *Server) DeleteUser(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "no user id", http.StatusBadRequest)
 		return
 	}
-	res, err := s.grpcServer.DeleteUser(context.Background(), &api.UserId{Id: uint32(id)})
+	res, err := s.grpcServer.DeleteUser(uint32(id))
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -226,6 +225,41 @@ func (s *Server) DeleteUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_, err = w.Write(marshal)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+}
+
+type reqBody struct {
+	Query string
+}
+
+func (s *Server) GraphUser(w http.ResponseWriter, r *http.Request) {
+	log.Printf("GET /user/graph")
+	var rBody reqBody
+	// Decode the request body into rBody
+	err := json.NewDecoder(r.Body).Decode(&rBody)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	params := graphql.Params{Schema: *s.gqlSchema, RequestString: rBody.Query}
+	req := graphql.Do(params)
+	if len(req.Errors) > 0 {
+		var respErr string
+		for i := range req.Errors {
+			respErr += req.Errors[i].Message
+		}
+		http.Error(w, respErr, http.StatusBadRequest)
+		return
+	}
+	rJSON, err := json.Marshal(req)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	_, err = w.Write(rJSON)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
