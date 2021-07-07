@@ -9,6 +9,7 @@ import (
 	"github.com/graphql-go/graphql"
 	"log"
 	"net/http"
+	"net/mail"
 	"os"
 	"os/signal"
 	"strconv"
@@ -132,7 +133,10 @@ func (s *Server) CreateUser(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "no name, email or age in body request", http.StatusBadRequest)
 		return
 	}
-
+	if _, err := mail.ParseAddress(email); err != nil {
+		http.Error(w, "email is not valid", http.StatusBadRequest)
+		return
+	}
 	resp, err := s.grpcServer.CreateUser(name, email, int32(age))
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -171,6 +175,15 @@ func (s *Server) UpdateUser(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	if (name == "") || (email == "") || (age == 0) {
+		http.Error(w, "no name, email or age in body request", http.StatusBadRequest)
+		return
+	}
+	if _, err := mail.ParseAddress(email); err != nil {
+		http.Error(w, "email is not valid", http.StatusBadRequest)
+		return
+	}
+
 	resp, err := s.grpcServer.UpdateUser(uint32(id), uint32(age), name, email)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
