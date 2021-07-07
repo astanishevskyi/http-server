@@ -3,7 +3,6 @@ package apiserver
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"github.com/astanishevskyi/http-server/internal/apiserver/configs"
 	"github.com/astanishevskyi/http-server/internal/apiserver/connectors"
 	"github.com/gorilla/mux"
@@ -252,5 +251,4 @@ func (s *Server) GraphUser(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	fmt.Printf("%s \n", rJSON)
 }

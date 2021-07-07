@@ -2,7 +2,6 @@ package main
 
 import (
 	"flag"
-	"fmt"
 	"github.com/astanishevskyi/http-server/internal/apiserver"
 	"github.com/astanishevskyi/http-server/internal/apiserver/configs"
 	"github.com/joho/godotenv"
@@ -31,7 +30,6 @@ func main() {
 		BindAddr: port,
 		GRPCAddr: grpcAddr,
 	}
-	fmt.Println(config)
 	server := apiserver.New(&config)
 
 	server.ConfigRouter()
